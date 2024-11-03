@@ -1,0 +1,5 @@
+debugpy
+transformers
+torch
+torchvision
+tqdm

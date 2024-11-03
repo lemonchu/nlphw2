@@ -1,0 +1,1 @@
+PYTORCH_ENABLE_MPS_FALLBACK=1 python run_zero_optimizer.py
