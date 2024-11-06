@@ -9,6 +9,8 @@ import os
 
 from utils import output_gpu_memory_usage
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 def align_size(data, bucket_size):
     shape = data.shape
     data = data.view(-1)
@@ -17,7 +19,7 @@ def align_size(data, bucket_size):
     return data
 
 class ZeroOptimizer:
-    def __init__(self, model, group=None, lr=0.001, weight_decay=0.0):
+    def __init__(self, model, group=None, lr=0.001, weight_decay=0.0,gradient_accumulation_steps=1):
         self.model = model
         if group is None:
             self.group = dist.group.WORLD
@@ -32,7 +34,7 @@ class ZeroOptimizer:
         self.weight_decay = weight_decay
         self.partition_parameters()
         self.optimizer = torch.optim.AdamW(self.pbuckets, lr=self.lr, weight_decay=self.weight_decay)
-
+        self.gradient_accumulation_steps = gradient_accumulation_steps
     def partition_parameters(self):
         
         # Partition parameters equally among processes
@@ -45,17 +47,18 @@ class ZeroOptimizer:
             data = data.view(self.group.size(), -1)
             param_shard = data[self.rank].clone()
 
-            self.pbuckets.append(param_shard)
+            self.pbuckets.append(torch.nn.Parameter(param_shard, requires_grad=True))
         
     def step(self):
 
         for (pbucket, param) in zip(self.pbuckets, self.model.parameters()):
             
-            grad = torch.zeros_like(pbucket)
+            grad = torch.zeros_like(pbucket,requires_grad=False)
 
-            data = param.grad.view(-1)
+            data = param.grad.view(-1).clone()
             data = align_size(data, self.group.size())
 
+            data = data / self.group.size() / self.gradient_accumulation_steps
             dist.reduce_scatter_tensor(grad, data, group=self.group)
              
             pbucket.grad = grad
@@ -73,12 +76,11 @@ class ZeroOptimizer:
             param.data = model_param[:param.numel()].clone().view(shape)
             
         self.optimizer.zero_grad()
-        
+        for param in self.model.parameters():
+            param.grad = None
 
 def main(rank, world_size):
     # 初始化进程组
-
-    device = 'cpu'
 
     dist.init_process_group(backend='gloo', init_method='env://', world_size=world_size, rank=rank)
 

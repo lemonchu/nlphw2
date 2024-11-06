@@ -2,7 +2,7 @@ import torch
 import warnings
 
 # DEVICE = 'mps'
-DEVICE = 'mps'
+DEVICE = 'cuda'
 
 def get_gpu_memory_usage():
     if DEVICE == 'mps':

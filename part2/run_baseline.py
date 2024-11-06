@@ -5,14 +5,7 @@ from model import CustomTransformer
 # 定义dummy数据集类
 from dataset import FixedRandomDataset
 
-import tracemalloc
-import gc
-
 from utils import output_gpu_memory_usage
-
-# 运行您的代码
-
-tracemalloc.start()
 
 class DataLoader:
     def __init__(self, dataset, batch_size=1):
@@ -39,6 +32,9 @@ class DataLoader:
             new_batch[key] = torch.stack([item[key] for item in batch])
         return new_batch
 # 创建固定随机数据集实例
+
+device = 'cuda:0'
+
 dataset = FixedRandomDataset(num_samples=20, seq_length=128, vocab_size=30522, seed=42)
 
 global_batch_size = 8
@@ -57,7 +53,7 @@ model = CustomTransformer(
     vocab_size=30522, 
     max_length=128, 
     dropout=0.1
-).to('mps')
+).to(device)
 output_gpu_memory_usage("after init model")
 loss_criterion = nn.CrossEntropyLoss()
 
@@ -69,7 +65,7 @@ for epoch in range(100):
     for i, sample in enumerate(data_loader):
         # print(f"Sample {i} - Attention Mask:", sample['attention_mask'])
         
-        sample = {k: v.to('mps') for k, v in sample.items()}
+        sample = {k: v.to(device) for k, v in sample.items()}
         
         output = model(sample['input_ids'], sample['attention_mask'])
         loss = loss_criterion(output.view(-1, output.size(-1)), sample['labels'].view(-1))

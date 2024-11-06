@@ -31,26 +31,23 @@ class TrainerConfig:
     ckpt_path = None
     num_workers = 2 # for DataLoader
     writer = None
-    
     def __init__(self, **kwargs):
         for k,v in kwargs.items():
             setattr(self, k, v)
 
 class Trainer:
 
-    def __init__(self, model, train_dataset, test_dataset, config, criterion):
+    def __init__(self, model, train_dataset, test_dataset, config, device):
         self.model = model
         self.train_dataset = train_dataset
         self.test_dataset = test_dataset
         self.config = config
-        self.criterion = criterion
 
         # take over whatever gpus are on the system
-        self.device = 'cpu'
+        self.device = device
         if torch.cuda.is_available():
             self.device = torch.cuda.current_device()
             self.model = self.model.to(self.device)
-            # self.model = torch.nn.DataParallel(self.model).to(self.device)
         elif torch.backends.mps.is_available():
             self.device = 'mps'
             self.model = self.model.to(self.device)
@@ -85,18 +82,15 @@ class Trainer:
             losses = []
             pbar = tqdm(enumerate(loader), total=len(loader)) if is_train else enumerate(loader)
             
-            for it, batch in pbar:
+            for it, (x,y) in pbar:
 
                 # place data on the correct device
-                # print(batch)
-                batch = {k: v.to(self.device) for k, v in batch.items()}
+                x = x.to(self.device)
+                y = y.to(self.device)
 
                 # forward the model
                 with torch.set_grad_enabled(is_train):
-                    output = model(**batch)
-                    logits = output.logits
-                    loss = self.criterion(logits.view(-1, logits.size(-1)), batch["labels"].view(-1))
-                    loss = loss.mean()
+                    output ,loss = model(x,y)
                     losses.append(loss.item())
                     
                 if is_train:
@@ -109,7 +103,6 @@ class Trainer:
 
                     # decay the learning rate based on our progress
                     if config.lr_decay:
-                        y = batch["labels"]
                         self.tokens += (y >= 0).sum() # number of tokens processed this step (i.e. label is not -100)
                         if self.tokens < config.warmup_tokens:
                             # linear warmup

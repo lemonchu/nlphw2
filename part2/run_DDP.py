@@ -9,6 +9,8 @@ import os
 
 from utils import output_gpu_memory_usage
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 def main(rank, world_size):
     # 初始化进程组
     dist.init_process_group(backend='gloo', init_method='env://', world_size=world_size, rank=rank)
@@ -31,7 +33,7 @@ def main(rank, world_size):
         vocab_size=30522, 
         max_length=128, 
         dropout=0.1
-    ).to('mps')
+    ).to(device)
     output_gpu_memory_usage(f"[rank {rank}] after init model")
     # 确保所有进程的模型参数相同
     for param in model.parameters():
@@ -45,7 +47,7 @@ def main(rank, world_size):
         # 训练循环
         for i, sample in enumerate(data_loader):
             
-            sample = {k: v.to('mps') for k, v in sample.items()}
+            sample = {k: v.to(device) for k, v in sample.items()}
             
             output = model(sample['input_ids'], sample['attention_mask'])
             loss = loss_criterion(output.view(-1, output.size(-1)), sample['labels'].view(-1))
@@ -59,7 +61,7 @@ def main(rank, world_size):
                 for param in model.parameters():
                     if param.grad is not None:
                         dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
-                        param.grad.data /= world_size  # 取平均梯度
+                        param.grad.data /= world_size * gradient_accumulation_steps  # 取平均梯度
 
                 optimizer.step()
                 optimizer.zero_grad()
