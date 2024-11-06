@@ -1,26 +1,8 @@
-"""
-GPT model:
-- the initial stem consists of a combination of token encoding and a positional encoding
-- the meat of it is a uniform sequence of Transformer blocks
-    - each Transformer is a sequential combination of a 1-hidden-layer MLP block and a self-attention block
-    - all blocks feed into a central residual pathway similar to resnets
-- the final decoder is a linear projection into a vanilla Softmax classifier
-
-
-Originally forked from Andrej Karpathy's minGPT.
-
-CS224N 2023-24: Homework 4
-
-John Hewitt <johnhew@stanford.edu>
-Ansh Khurana <anshk@stanford.edu>
-Soumya Chatterjee <soumyac@stanford.edu>
-"""
-
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-import attention
+import part1.attention_hw2 as attention_hw2
 
 torch.manual_seed(0)
 
@@ -52,19 +34,12 @@ class Block(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.ln1 = nn.LayerNorm(config.n_embd)
-        self.ln2 = nn.LayerNorm(config.n_embd)
-        self.attn = attention.CausalSelfAttention(config)
-        self.mlp = nn.Sequential(
-            nn.Linear(config.n_embd, 4 * config.n_embd),
-            nn.GELU(),
-            nn.Linear(4 * config.n_embd, config.n_embd),
-            nn.Dropout(config.resid_pdrop),
-        )
+        ### TODO: Implement the Block class
+        raise NotImplementedError
 
     def forward(self, x):
-        x = x + self.attn(self.ln1(x))
-        x = x + self.mlp(self.ln2(x))
+        ### TODO: Implement the forward pass, you can try post-norm or pre-norm here
+        raise NotImplementedError
         return x
 
 class GPT(nn.Module):
@@ -106,22 +81,10 @@ class GPT(nn.Module):
         b, t = idx.size()
         assert t <= self.block_size, f"Cannot forward, model block size ({t}, {self.block_size}) is exhausted."
 
-        # forward the GPT model
-        token_embeddings = self.tok_emb(idx) # each index maps to a (learnable) vector
-        if self.rope:
-            x_input = token_embeddings
-        else:
-            position_embeddings = self.pos_emb[:, :t, :] # each position maps to a (learnable) vector
-            x_input = token_embeddings + position_embeddings
-
-        x = self.drop(x_input)
-        x = self.blocks(x)
-        x = self.ln_f(x)
-        logits = self.head(x)
-
-        # if we are given some desired targets also calculate the loss
+        # TODO: Implement the forward pass
+        
+        # TODOEND
+        logits = None
         loss = None
-        if targets is not None:
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=0)
 
         return logits, loss

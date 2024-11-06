@@ -24,7 +24,7 @@ def main(args):
 
     # We don't suggest you change these hyperparameters, as they're known to work.
     # use them for both the vanilla and the synthesizer models
-    # feel free to change gpt config for different model setups
+    # TODO[Optional]: change gpt config for different model setups
     mconf = GPTConfig(pretrain_dataset.vocab_size, pretrain_dataset.block_size,
     n_layer=4, n_head=8, n_embd=256)
     # Ensure tokenizer is set up correctly
@@ -33,6 +33,8 @@ def main(args):
     if args.function == 'pretrain':
         assert args.pretrain_corpus_path is not None
         assert args.outputs_path is not None
+        ### TODO: Implement pretraining, you can refer this setup in train.py
+        ### TODO[Optional]: change hyperparameters for ablation study
         # max_epochs=650
         # batch_size=128
         # learning_rate=args.pretrain_lr
@@ -41,27 +43,6 @@ def main(args):
         # final_tokens=650*len(pretrain_dataset)*block_size
         # num_workers=4
         # writer=writer
-        config = TrainerConfig(
-            max_epochs=650,
-            batch_size=256,
-            learning_rate=6e-4,
-            lr_decay=True,
-            warmup_tokens=512*20,
-            final_tokens=650*len(pretrain_dataset)*block_size,
-            num_workers=4,
-            ckpt_path=f"{args.outputs_path}/pretrain.pt"
-        )
-
-        trainer = Trainer(
-            config=config,
-            model=model,
-            train_dataset=pretrain_dataset,
-            test_dataset=None,
-            device=args.device
-        )
-
-        # 10. Start Training
-        trainer.train()
 
     elif args.function == 'finetune':
         assert args.outputs_path is not None
@@ -99,51 +80,7 @@ def main(args):
     #         writer=writer
         #     You can use the args.reading_params_path flag to switch between the
         #     number of epochs for each case.
-        if args.reading_params_path is not None:
-            model.load_state_dict(torch.load(args.reading_params_path))
-            
-            config = TrainerConfig(
-                max_epochs=10,
-                batch_size=256,
-                learning_rate=6e-4,
-                lr_decay=True,
-                warmup_tokens=512*20,
-                final_tokens=200*len(pretrain_dataset)*block_size,
-                num_workers=4,
-                ckpt_path=f"{args.outputs_path}/finetune_with_pretrained.pt"
-            )
-        else:
-            config = TrainerConfig(
-                max_epochs=75,
-                batch_size=256,
-                learning_rate=6e-4,
-                lr_decay=True,
-                warmup_tokens=512*20,
-                final_tokens=200*len(pretrain_dataset)*block_size,
-                num_workers=4,
-                ckpt_path=f"{args.outputs_path}/finetune_without_pretrained.pt"   
-            )
-
-        finetune_dataset = dataset.NameDataset(pretrain_dataset, open(args.finetune_corpus_path).read())
-
-        if args.eval_corpus_path is not None:
-        # Init the name dataset from corpus for evaluation
-            eval_corpus = open(args.eval_corpus_path).read()
-            eval_dataset = dataset.NameDataset(pretrain_dataset, eval_corpus)
-        else:
-            # If not provided
-            eval_dataset = None
-
-        trainer = Trainer(
-            config=config,
-            model=model,
-            train_dataset=finetune_dataset,
-            test_dataset=eval_dataset,
-            device=args.device
-        )
-
-        # 10. Start Training
-        trainer.train()
+        
 
     elif args.function == 'evaluate':
         assert args.outputs_path is not None
