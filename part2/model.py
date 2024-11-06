@@ -118,8 +118,7 @@ class CustomTransformer(nn.Module):
                 self.embedding_to_logits = nn.Linear(embed_size, vocab_size)
             else:
                 ### TODO[Optional]: you can change the code for your own implementation
-                self.word_embedding = RowParallelEmbedding(vocab_size//self.tp_group.size(), embed_size, self.tp_group)
-                self.embedding_to_logits = ColumnParallelEmbedding(embed_size, vocab_size//self.tp_group.size(), self.tp_group)
+                pass
                 ### TODOEND
             self.layers = nn.ModuleList([
                 TransformerLayer(embed_size, num_heads, ff_size, self.tp_group)
@@ -151,9 +150,6 @@ class RowParallelEmbedding(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embed_size)
     def forward(self, x):
         ### TODO: Implement tensor parallel embedding
-        x = self.embedding(x)
-        x = x.view(x.size(0), -1)
-        x = torch.cat(torch.split(x, self.tp_group.size()), dim=1)
         ### TODOEND
         return x
     
@@ -164,7 +160,5 @@ class ColumnParallelEmbedding(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embed_size)
     def forward(self, x):
         ### TODO: Implement tensor parallel embedding
-        x = self.embedding(x)
-        x = torch.cat(torch.split(x, self.tp_group.size()), dim=1)
         ### TODOEND
         return x

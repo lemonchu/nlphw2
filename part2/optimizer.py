@@ -62,15 +62,6 @@ class ZeroOptimizer:
         ### TODO: Partition parameters equally among processes
         ### Hint: You should forloop through all parameters, and maintain a param shard of each parameter, 
         ### and parameterize the param shard so you can send them into optimizer
-        for param in self.model.parameters():
-            data = param.data.view(-1)
-    
-            data = align_size(data, self.dp_size)
-            # only select the data of this rank, and copy to the param_shard
-            data = data.view(self.dp_size, -1)
-            param_shard = data[self.dp_rank].clone()
-
-            self.pbuckets.append(torch.nn.Parameter(param_shard, requires_grad=True))
         ### TODO END
 
     def step(self,loss):
@@ -82,27 +73,12 @@ class ZeroOptimizer:
             if self.stage == 0:
                 
                 ### TODO: all reduce the grad, and then step
-                for param in self.model.parameters():
-                    dist.all_reduce(param.grad, group=self.dp_group, op=dist.ReduceOp.SUM)
-                    param.grad = param.grad / self.dp_group.size() / self.gradient_accumulation_steps
-                self.optimizer.step()
-                self.optimizer.zero_grad()
+                pass
                 ### TODO END
             elif self.stage == 1:
                 ### TODO: Forloop through gradients of all parameters, and do reduce scatter, 
                 ### and send the grad into self.pbuckets
-                for (pbucket, param) in zip(self.pbuckets, self.model.parameters()):
-                    
-                    grad = torch.zeros_like(pbucket,requires_grad=False)
-
-                    data = param.grad.view(-1).clone()
-                    data = align_size(data, self.dp_size)
-
-                    data = data / self.dp_size / self.gradient_accumulation_steps
-                    dist.reduce_scatter_tensor(grad, data, group=self.dp_group)
-                    
-                    pbucket.grad = grad
-
+                pass 
                 ### TODO END
 
                 self.optimizer.step()
@@ -110,14 +86,7 @@ class ZeroOptimizer:
                 ### TODO: Forloop through all param shards, and do all gather to get a global model param
                 ### and update the param of the model
 
-                for (pbucket, param) in zip(self.pbuckets, self.model.parameters()):
-                    shape = param.shape
-                    model_param = torch.zeros_like(param, dtype=param.dtype, device=param.device)
-                    model_param = align_size(model_param, self.dp_size).view(-1)
-
-                    dist.all_gather_into_tensor(model_param, pbucket.data.view(-1), group=self.dp_group)
-                    param.data = model_param[:param.numel()].clone().view(shape)
-                    
+                pass 
                 ### TODO END
 
                 self.optimizer.zero_grad()

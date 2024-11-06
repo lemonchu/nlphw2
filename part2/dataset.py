@@ -60,9 +60,7 @@ class DataParallelDataLoader:
     def set_epoch(self, epoch):
         ### TODO: make sure all ranks have the same random order
         ### this function is called before each epoch
-        torch.manual_seed(epoch)
-        indices = torch.randperm(len(self.dataset))
-        self.indices = indices[self.dp_rank::self.dp_group.size()]
+        pass
         ### TODOEND
 
     def __len__(self):
@@ -70,10 +68,7 @@ class DataParallelDataLoader:
 
     def __iter__(self):
         ### TODO: make sure each rank only get a subset of the dataset
-        for i in range(0, len(self.indices), self.batch_size):
-            batch_indices = self.indices[i:i+self.batch_size]
-            batch = [self.dataset[idx.item()] for idx in batch_indices]
-            yield self.collate_fn(batch)
+        pass
         ### TODO END
                 
     def collate_fn(self, batch):

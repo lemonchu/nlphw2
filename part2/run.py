@@ -68,7 +68,6 @@ def main(rank, world_size, args):
         data_loader = SimpleDataLoader(dataset, batch_size=args.micro_batch_size) 
     else:
         data_loader = DataParallelDataLoader(dataset, batch_size=args.micro_batch_size, rank=dp_group.rank() if dp_group is not None else 0, dp_group = dp_group)
-    # print(len(data_loader))
     # 初始化模型
     model = CustomTransformer(
         embed_size=256, 
