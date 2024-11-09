@@ -2,6 +2,20 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class SimpleEmbedding(nn.Module):
+    def __init__(self, vocab_size, embed_size):
+        super(SimpleEmbedding, self).__init__()
+        self.embedding = nn.Embedding(vocab_size, embed_size)
+    def forward(self, x):
+        return self.embedding(x)
+    
+class SimpleOutputHead(nn.Module):
+    def __init__(self, embed_size, vocab_size):
+        super(SimpleOutputHead, self).__init__()
+        self.linear = nn.Linear(embed_size, vocab_size, bias=False)
+    def forward(self, x):
+        return self.linear(x)
+
 class MultiHeadAttention(nn.Module):
     def __init__(self, embed_size, num_heads, tp_group=None):
         super(MultiHeadAttention, self).__init__()
@@ -10,7 +24,7 @@ class MultiHeadAttention(nn.Module):
         self.num_heads = num_heads
         self.tp_group = tp_group
 
-        if self.tp_group is None:
+        if self.tp_group.size() == 1:
             self.query = nn.Linear(embed_size, embed_size)
             self.key = nn.Linear(embed_size, embed_size)
             self.value = nn.Linear(embed_size, embed_size)
@@ -24,7 +38,7 @@ class MultiHeadAttention(nn.Module):
         batch_size, seq_length, embed_size = x.size()
         
         # Linear transformations
-        if self.tp_group is None:
+        if self.tp_group.size() == 1:
         
             query = self.query(x).view(batch_size, seq_length, self.num_heads, self.head_dim).transpose(1, 2)
             key = self.key(x).view(batch_size, seq_length, self.num_heads, self.head_dim).transpose(1, 2)
@@ -41,20 +55,42 @@ class MultiHeadAttention(nn.Module):
             raise NotImplementedError
             ### TODOEND
 
+class ColumnParallelOutputHead(nn.Module):
+    def __init__(self, in_features, out_features, tp_group):
+        super(ColumnParallelOutputHead, self).__init__()
+        self.tp_group = tp_group
+        self.linear = nn.Linear(in_features, out_features, bias=False)
+    def forward(self, x):
+        x = self.linear(x)
+        x = torch.cat(torch.split(x, self.tp_group.size()), dim=1)
+        return x
+
+class ColumnParallelLinear(nn.Module):
+    def __init__(self, in_features, out_features, tp_group):
+        super(ColumnParallelLinear, self).__init__()
+        self.tp_group = tp_group
+        self.linear = nn.Linear(in_features, out_features)
+    def forward(self, x):
+        x = self.linear(x)
+        x = torch.cat(torch.split(x, self.tp_group.size()), dim=1)
+        return x
+
 class MLP(nn.Module):
     def __init__(self, embed_size, ff_size, tp_group=None):
         super(MLP, self).__init__()
         self.tp_group = tp_group
-        if self.tp_group is None:
+        if self.tp_group.size() == 1:
             self.fc1 = nn.Linear(embed_size, ff_size)
             self.fc2 = nn.Linear(ff_size, embed_size)
         else:
             ### TODO: Implement tensor parallel MLP
+            self.fc1 = ColumnParallelLinear(embed_size, ff_size // 2, self.tp_group)
+            self.fc2 = RowParallelLinear(ff_size // 2, embed_size, self.tp_group)
             raise NotImplementedError
             ### TODOEND
 
     def forward(self, x):
-        if self.tp_group is None:
+        if self.tp_group.size() == 1:
             x = self.fc1(x)
             x = F.relu(x)
             x = self.fc2(x)
@@ -68,9 +104,9 @@ class TransformerLayer(nn.Module):
     def __init__(self, embed_size, num_heads, ff_size, tp_group=None):
         super(TransformerLayer, self).__init__()
         self.tp_group = tp_group
-        if self.tp_group is None:
-            self.attention = MultiHeadAttention(embed_size, num_heads)
-            self.feed_forward = MLP(embed_size, ff_size)
+        if self.tp_group.size() == 1:
+            self.attention = MultiHeadAttention(embed_size, num_heads, self.tp_group)
+            self.feed_forward = MLP(embed_size, ff_size, self.tp_group)
         else:
             ### TODO: Implement tensor parallel attention
             raise NotImplementedError
@@ -82,8 +118,7 @@ class TransformerLayer(nn.Module):
     def forward(self, x):
         # Multi-head attention with residual connection
         
-        if self.tp_group is None:
-
+        if self.tp_group.size() == 1:
             attn_output = self.attention(x)
             x = x + attn_output
             x = self.norm1(x)
@@ -105,43 +140,72 @@ class CustomTransformer(nn.Module):
                  ff_size, 
                  vocab_size, 
                  tp_group=None,
-                 pp_group=None):
+                 pp_group=None,
+                 rank=None):
         super(CustomTransformer, self).__init__()
+        self.embed_size = embed_size
+
         self.tp_group = tp_group
         self.pp_group = pp_group
+        self.rank = rank
+        self.is_first_pp = self.pp_group.rank() == 0
+        self.is_last_pp = self.pp_group.rank() == self.pp_group.size() - 1
 
-        self.embed_size = embed_size
-        
-        if self.pp_group is None:
-            if self.tp_group is None:
-                self.word_embedding = nn.Embedding(vocab_size, embed_size)
-                self.embedding_to_logits = nn.Linear(embed_size, vocab_size)
+        if self.is_first_pp:
+            if self.tp_group.size() == 1:
+                self.word_embedding = SimpleEmbedding(vocab_size, embed_size)
             else:
-                ### TODO[Optional]: you can change the code for your own implementation
                 self.word_embedding = RowParallelEmbedding(vocab_size//self.tp_group.size(), embed_size, self.tp_group)
-                self.embedding_to_logits = ColumnParallelEmbedding(embed_size, vocab_size//self.tp_group.size(), self.tp_group)
-                ### TODOEND
-            self.layers = nn.ModuleList([
-                TransformerLayer(embed_size, num_heads, ff_size, self.tp_group)
-                for _ in range(num_layers)
-            ])
-        else:
-            ### TODO[Optional]: Implement pipeline parallel embedding(you can change the code)
-            raise NotImplementedError
-            ### TODOEND 
+            
+        each_rank_layer_size = num_layers // self.pp_group.size()
+        self.layers_id = [f"layer_{i}" for i in  range(each_rank_layer_size*self.pp_group.rank(), each_rank_layer_size*(self.pp_group.rank()+1))]
+        self.layers = nn.ModuleDict({
+            layer_id: TransformerLayer(embed_size, num_heads, ff_size, self.tp_group)
+            for layer_id in self.layers_id
+        })
 
+        if self.is_last_pp:
+            if self.tp_group.size() == 1:
+                self.embedding_to_logits = SimpleOutputHead(embed_size, vocab_size)
+            else:
+                self.embedding_to_logits = ColumnParallelOutputHead(embed_size, vocab_size//self.tp_group.size(), self.tp_group)
+                
+            # raise NotImplementedError
+            ### TODOEND 
     def forward(self, x):
 
         # We ignore position embedding for simplisity
-        if self.pp_group is None:
-            x = self.word_embedding(x) 
-            for layer in self.layers:
-                x = layer(x)
+        if self.pp_group.size() == 1:
+            print(x.shape,x.dtype)
+            x = self.word_embedding(x)
+            for layer_id in self.layers_id:
+                x = self.layers[layer_id](x)
             output = self.embedding_to_logits(x)
+            x = None
         else:
-            ### TODO: Implement pipeline parallel embedding
-            raise NotImplementedError
-            ### TODOEND
+            if not self.is_first_pp:
+                zeros = torch.zeros([x.shape[0], x.shape[1], self.embed_size], device=x.device, dtype=torch.float32)
+                x = zeros
+                # print(f'[rank {self.rank}] recv')
+                torch.distributed.recv(x, src=self.rank - self.tp_group.size(), group=self.pp_group)
+                # print(f'[rank {self.rank}] recv done')
+            else: 
+                # print(f'[rank {self.rank}] embedding')
+                x = self.word_embedding(x)
+                # print(f'[rank {self.rank}] embedding done')
+            
+            for layer_id in self.layers_id:
+                # print(f'[rank {self.rank}] layer {layer_id}')
+                x = self.layers[layer_id](x)
+                # print(f'[rank {self.rank}] layer {layer_id} done')
+            
+            if not self.is_last_pp:
+                # print(f'[rank {self.rank}] send')
+                torch.distributed.send(x, dst=self.rank + self.tp_group.size(), group=self.pp_group)
+                output = None
+                # print(f'[rank {self.rank}] send done')
+            else:   
+                output = self.embedding_to_logits(x)
         return output
 
 class RowParallelEmbedding(nn.Module):
@@ -157,9 +221,9 @@ class RowParallelEmbedding(nn.Module):
         ### TODOEND
         return x
     
-class ColumnParallelEmbedding(nn.Module):
+class ColumnParallelOutputHead(nn.Module):
     def __init__(self, embed_size, vocab_size, tp_group):
-        super(ColumnParallelEmbedding, self).__init__()
+        super(ColumnParallelOutputHead, self).__init__()
         self.tp_group = tp_group
         self.embedding = nn.Embedding(vocab_size, embed_size)
     def forward(self, x):

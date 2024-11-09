@@ -18,9 +18,8 @@ class SimpleOptimizer:
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.total_steps = 0
 
-    def step(self,loss):
+    def step(self):
 
-        loss.backward()
         self.total_steps += 1
         if self.total_steps % self.gradient_accumulation_steps == 0:
             self.optimizer.step()
@@ -38,7 +37,7 @@ class ZeroOptimizer:
         self.weight_decay = weight_decay
         self.stage = stage
         self.gradient_accumulation_steps = gradient_accumulation_steps
-        if dp_group is None:
+        if dp_group.size() == 1:
             self.dp_group = dist.group.WORLD
         else:
             self.dp_group = dp_group
@@ -73,9 +72,8 @@ class ZeroOptimizer:
             self.pbuckets.append(torch.nn.Parameter(param_shard, requires_grad=True))
         ### TODO END
 
-    def step(self,loss):
+    def step(self):
 
-        loss.backward()
         self.total_steps += 1
 
         if self.total_steps % self.gradient_accumulation_steps == 0:
